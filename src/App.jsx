@@ -29,9 +29,9 @@ function App() {
       <div
         className={`${
           step === 3 ? 'w-full max-w-6xl' : 'w-full max-w-md'
-        } bg-[#0075a2]/10 border border-[#0075a2] p-8 rounded-2xl backdrop-blue-sm transition-all duration-700`}
+        } bg-[#0075a2]/10 border border-[#0075a2] p-4 sm:p-6 md:p-8 rounded-2xl backdrop-blur-sm transition-all duration-700`}
       >
-        <h1 className="text-[#0075a2] text-5xl font-bold tracking-tight mb-2">
+        <h1 className="text-[#0075a2] text-3xl md:text-5xl font-bold tracking-tight mb-2">
           FocusFlow
         </h1>
 
