@@ -1,7 +1,46 @@
 @import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Poppins:wght@300;400;600&display=swap');
 
-/* @theme {
-  --color-brand-dark: #040f0f;
-  --color-brand-blue: #0075a2;
-  --color-brand-highlight: #d1faff;
-} */
+@theme {
+  --color-ffblue: #0075a2;
+  --color-ffblack: #040f0f;
+  --color-ffwhite: #fcfcfc;
+  --color-ffyellow: #fed766;
+  --color-ffaqua: #41d3bd;
+  --color-ffgreen: #22c55e;
+  --color-ffred: #f87171;
+}
+
+:root {
+  /* YOUR CORE PALETTE */
+  --ffblue: 0, 117, 162;
+  --ffblack: 4, 15, 15;
+  --ffwhite: 252, 252, 252;
+  --ffyellow: 254, 215, 102;
+  --ffaqua: 65, 211, 189;
+
+  /* THEME MAPPING (The Switch) */
+  --bg-main: var(--ffblack);
+  --text-main: var(--ffwhite);
+  --panel-bg: rgba(0, 117, 162, 0.1);
+}
+
+[data-theme='light'] {
+  --bg-main: var(--ffwhite);
+  --text-main: var(--ffblack);
+  --panel-bg: rgba(0, 117, 162, 0.05);
+}
+
+body {
+  font-family: 'Poppins', sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+}
+
+h1,
+h2,
+h3,
+h4,
+.font-inter {
+  font-family: 'Inter', sans-serif;
+}

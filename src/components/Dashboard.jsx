@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import TaskCard from './UI/TaskCard';
 
 export default function Dashboard({ user, profile }) {
   const inputRef = useRef(null);
   const [task, setTask] = useState('');
+  const [tasks, setTasks] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [activeTheater, setActiveTheater] = useState('Professional');
 
   useEffect(() => {
+    fetchTasks();
     if (inputRef.current) inputRef.current.focus();
   }, []);
 
@@ -16,130 +18,164 @@ export default function Dashboard({ user, profile }) {
     setIsAnalyzing(true);
 
     try {
-      // Send the data to our python server
       const response = await fetch('http://localhost:8000/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           task: task,
-          profile: profile, // Send the profession, location, and theater
+          profile: profile,
         }),
       });
 
-      // Turn the response into a JA object
       const data = await response.json();
 
-      const newEntry = {
-        text: task,
-        result: data.analysis,
-        score: data.score,
-        timestamp: new Date().toLocaleTimeString(),
-      };
+      await fetchTasks();
 
-      setHistory((prev) => [newEntry, ...prev]); //Add the new task to the top of the list
-      setTask(''); // Clears the input for the next objective
+      // UI SMARTS: Automatically switch to the tab where the AI put the task!
+      setActiveTheater(data.theater);
 
-      // Update the UI with the real message from python
-      setAnalysisResult(data.analysis);
+      setTask('');
     } catch (error) {
-      console.error('Connection failed:', error);
-      setAnalysisResult('Neural Link Failure.');
+      console.error('Neural Link Failure:', error);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  // Filter history based on the active tab
+  const filteredHistory = tasks.filter(
+    (item) => item.theater === activeTheater
+  );
+
+  // 1. Move fetchTasks outside of any other functions so it's "global" to the component
+  const fetchTasks = async () => {
+    const response = await fetch('http://localhost:8000/tasks');
+    const data = await response.json();
+    setTasks(data); // Assuming your state is called 'tasks'
+  };
+
+  // 2. Now handleMoveTask can "see" and call fetchTasks
+  const handleMoveTask = async (taskId, targetTheater) => {
+    await fetch('http://localhost:8000/tasks/move', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task_id: Number(taskId),
+        new_theater: targetTheater,
+      }),
+    });
+
+    // This line was likely failing because fetchTasks wasn't in scope
+    await fetchTasks();
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    try {
+      await fetch(`http://localhost:8000/tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+      await fetchTasks(); // Refresh the list from the DB
+    } catch (error) {
+      console.error('Deletion failed:', error);
+    }
+  };
+
+  const handleCompleteTask = async (taskId) => {
+    try {
+      await fetch(`http://localhost:8000/tasks/${taskId}/complete`, {
+        method: 'PATCH',
+      });
+      await fetchTasks(); // Refresh to show the "✓" status
+    } catch (error) {
+      console.error('Completion failed:', error);
+    }
+  };
+
   return (
-    <div className="w-full max-w-4xl animate-in fade-in zoom-in duration-1000">
-      <header className="flex justify-between items-center mb-8 border-b border-[#0075a2]/30 pb-4">
-        {/* Dashboard.jsx header update */}
-        <div className="text-left">
-          <h2 className="text-[#d1faff]/80 text-sm font-mono uppercase tracking-widest">
-            {profile.primary_theater} Mode
-          </h2>
-          <h1 className="text-2xl font-bold text-white">Welcome, {user}</h1>
-          <p className="text-[#0075a2] text-[10px] font-mono">
-            {profile.profession} // {profile.hq_location}
+    <div className="w-full max-w-[450px] mx-auto space-y-6 animate-in fade-in duration-700">
+      {/* HEADER SECTION (Your Original Logic) */}
+      <div className="flex justify-between items-end border-b border-ffblue/20 pb-4">
+        <div>
+          {/* <h1 className="font-inter font-black text-2xl text-ffwhite tracking-tighter">
+            FOCUS<span className="text-ffblue">FLOW</span>
+          </h1> */}
+          <p className="font-poppins text-[10px] text-ffblue uppercase tracking-[0.2em]">
+            User: {user} // {profile.profession}
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-[#0075a2] font-bold text-xl">100%</p>
-          <p className="text-[#d1faff]/40 text-xs uppercase">Focus Battery</p>
-        </div>
-      </header>
-
-      {/* THE MAIN GRID CONTAINER */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Left Column: Input */}
-        <div className="bg-[#0075a2]/5 border border-[#0075a2]/20 p-4 md:p-6 rounded-xl">
-          <h3 className="text-[#d1faff] font-bold mb-4 flex items-center">
-            <span className="w-2 h-2 bg-[#0075a2] rounded-full mr-2 animate-pulse"></span>
-            Neural Task Input
-          </h3>
-          <textarea
-            placeholder="What is the primary objective for this session?"
-            value={task}
-            onChange={(e) => setTask(e.target.value)}
-            ref={inputRef}
-            className="w-full h-32 bg-[#040f0f] border border-[#0075a2]/30 rounded-lg p-4 text-white placeholder-[#d1faff]/35 outline-none focus:border-[#0075a2] transition-all resize-none font-mono text-sm"
-          />
-          <button
-            onClick={handleAnalyze}
-            disabled={isAnalyzing || !task}
-            className="mt-4 w-full py-2 bg-[#0075a2]/20 hover:bg-[#0075a2]/40 border border-[#0075a2]/50 text-[#d1faff] text-xs uppercase tracking-widest font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isAnalyzing ? 'Processing...' : 'Analyze Priority'}
-          </button>
-        </div>
-
-        {/* Right Column: AI Feedback */}
-        <div className="bg-[#0075a2]/5 border border-[#0075a2]/20 p-4 md:p-6 rounded-xl flex flex-col justify-center items-center text-center relative overflow-hidden">
-          <div className="text-[#0075a2] text-xs font-mono mb-2 uppercase tracking-tighter">
-            AI Assessment
-          </div>
-
-          {isAnalyzing ? (
-            <div className="flex flex-col items-center">
-              <div className="w-8 h-8 border-2 border-[#d1faff] border-t-transparent rounded-full animate-spin mb-2"></div>
-              <p className="text-[#d1faff]/60 text-xs animate-pulse font-mono">
-                Running ML Model...
-              </p>
-            </div>
-          ) : (
-            <p className="text-[#d1faff]/80 text-sm italic leading-relaxed">
-              {analysisResult || 'Waiting for neural input...'}
-            </p>
-          )}
+        <div className="flex items-center gap-2 bg-ffblue/5 border border-ffblue/20 px-3 py-1 rounded-full">
+          <span className="w-1.5 h-1.5 bg-ffgreen rounded-full animate-pulse"></span>
+          <span className="font-mono text-[9px] text-ffwhite/70">
+            SYNC: OPTIMAL
+          </span>
         </div>
       </div>
 
-      {/* HISTORY SECTION */}
-      <div className="mt-8 bg-[#0075a2]/5 border border-[#0075a2]/20 rounded-xl p-6">
-        <h3 className="text-[#d1faff] font-bold mb-4 text-sm uppercase tracking-widest">
-          Neural History Log
-        </h3>
-        <div className="space-y-4">
-          {history.map((item, index) => (
-            <div
-              key={index}
-              className="border-l-2 border-[#0075a2] pl-4 py-2 bg-[#040f0f]/50 rounded-r-lg"
-            >
-              <div className="flex justify-between text-[10px] font-mono text-[#0075a2] mb-1">
-                <span>{item.timestamp}</span>
-                <span>SCORE: {item.score?.toFixed(2)}</span>
-              </div>
-              <p className="text-white text-sm font-medium">{item.text}</p>
-              <p className="text-[#d1faff]/60 text-xs italic mt-1">
-                {item.result}
-              </p>
-            </div>
-          ))}
-          {history.length === 0 && (
-            <p className="text-[#d1faff]/20 text-center py-4 italic text-sm">
-              No neural logs detected.
-            </p>
-          )}
+      {/* COMPACT INPUT SECTION */}
+      <div className="bg-ffblue/5 border border-ffblue/20 p-4 rounded-2xl relative overflow-hidden">
+        <textarea
+          ref={inputRef}
+          value={task}
+          onChange={(e) => setTask(e.target.value)}
+          placeholder="Enter objective..."
+          className="w-full h-20 bg-transparent text-ffwhite placeholder-ffwhite/20 outline-none resize-none font-poppins text-sm"
+        />
+        <button
+          onClick={handleAnalyze}
+          disabled={isAnalyzing || !task}
+          className="w-full py-3 bg-ffblue text-ffwhite font-inter font-black text-[10px] uppercase tracking-widest rounded-xl hover:opacity-90 transition-all disabled:opacity-30"
+        >
+          {isAnalyzing ? 'Processing Neural Data...' : 'Transmit Objective'}
+        </button>
+      </div>
+
+      {/* THEATER TABS (The New Logic) */}
+      <div className="flex bg-ffblack border border-ffblue/10 rounded-2xl p-1">
+        {['Professional', 'Domestic', 'Personal'].map((theater) => (
+          <button
+            key={theater}
+            onClick={() => setActiveTheater(theater)}
+            className={`flex-1 py-2 rounded-xl font-inter text-[9px] uppercase tracking-widest transition-all ${
+              activeTheater === theater
+                ? 'bg-ffblue/20 text-ffblue border border-ffblue/30'
+                : 'text-ffwhite/30 hover:text-ffwhite/60'
+            }`}
+          >
+            {theater}
+          </button>
+        ))}
+      </div>
+
+      {/* FILTERED FEED */}
+      <div className="space-y-3">
+        <div className="flex justify-between items-center px-1">
+          <h3 className="font-inter font-bold text-[10px] text-ffaqua uppercase tracking-widest">
+            {activeTheater} Feed
+          </h3>
+          <span className="text-[9px] font-mono text-ffwhite/20">
+            {filteredHistory.length} Entries
+          </span>
         </div>
+
+        <div className="space-y-3">
+          {filteredHistory.map((item) => (
+            <TaskCard
+              key={item.id}
+              item={item}
+              onMove={handleMoveTask}
+              onDelete={handleDeleteTask} // We'll define this next
+              onComplete={handleCompleteTask} // We'll define this next
+            />
+          ))}
+        </div>
+
+        {filteredHistory.length === 0 && !isAnalyzing && (
+          <div className="py-12 text-center border-2 border-dashed border-ffblue/5 rounded-3xl">
+            <p className="text-ffwhite/20 text-[10px] uppercase tracking-widest font-mono">
+              Theater Empty // Waiting for Input
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
