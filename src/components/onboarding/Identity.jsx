@@ -144,9 +144,9 @@ export default function Identity({
           <button
             type="button"
             onClick={() => setUserExists(false)}
-            className="w-full text-[9px] text-ffwhite/30 uppercase hover:text-ffblue transition-colors mt-2"
+            className="w-full text-s text-ffred/50 uppercase hover:text-ffred transition-colors mt-2"
           >
-            Not {tempName}? Create New Link
+            Not {tempName}? Create New Username
           </button>
         )}
       </form>

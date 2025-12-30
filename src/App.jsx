@@ -84,7 +84,11 @@ function App() {
   };
 
   return (
-    <main className="bg-ffblack min-h-screen flex items-center justify-center p-4">
+    <main
+      className={`bg-ffblack min-h-screen flex justify-center p-4 ${
+        step === 4 ? 'items-start pt-6' : 'items-center'
+      }`}
+    >
       {/* ONBOARDING CONTAINER (Steps 1-3) */}
       {step < 4 && (
         <div className="w-full max-w-md bg-ffblue/10 border border-ffblue p-4 sm:p-6 md:p-8 rounded-2xl backdrop-blur-sm relative">

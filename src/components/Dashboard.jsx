@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import TaskCard from './UI/TaskCard';
 
 export default function Dashboard({ user, profile }) {
@@ -8,10 +8,21 @@ export default function Dashboard({ user, profile }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTheater, setActiveTheater] = useState('Professional');
 
+  // 1. Move fetchTasks outside of any other functions so it's "global" to the component
+  const fetchTasks = useCallback(async () => {
+    try {
+      const response = await fetch(`http://localhost:8000/tasks/${user}`); // 'user' is the username prop
+      const data = await response.json();
+      setTasks(data);
+    } catch (error) {
+      console.error('Fetch error:', error);
+    }
+  }, [user]);
+
   useEffect(() => {
     fetchTasks();
     if (inputRef.current) inputRef.current.focus();
-  }, []);
+  }, [fetchTasks]);
 
   const handleAnalyze = async () => {
     if (!task) return;
@@ -23,7 +34,7 @@ export default function Dashboard({ user, profile }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           task: task,
-          profile: profile,
+          profile: { ...profile, username: user },
         }),
       });
 
@@ -53,13 +64,6 @@ export default function Dashboard({ user, profile }) {
       // 2. Secondary Sort: Date (Newest first)
       return new Date(b.created_at) - new Date(a.created_at);
     });
-
-  // 1. Move fetchTasks outside of any other functions so it's "global" to the component
-  const fetchTasks = async () => {
-    const response = await fetch('http://localhost:8000/tasks');
-    const data = await response.json();
-    setTasks(data); // Assuming your state is called 'tasks'
-  };
 
   // 2. Now handleMoveTask can "see" and call fetchTasks
   const handleMoveTask = async (taskId, targetTheater) => {

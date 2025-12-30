@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi import HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from database import SessionLocal, init_db, TaskEntry, User
 
@@ -21,7 +22,7 @@ def get_db():
 
 # 1. Load Environment Variables
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 app = FastAPI()
 
@@ -40,80 +41,88 @@ class TaskRequest(BaseModel):
 @app.post("/analyze")
 async def analyze_task(request: TaskRequest):
     db = SessionLocal()
-    
-    # 1. CREATE INITIAL RECORD (The "Safety Save")
-    # We save this immediately so it exists in your DB even if Google fails.
-    new_task = TaskEntry(
-        content=request.task,
-        theater="Personal",  # Default starting theater
-        priority="Standard", # Default starting priority
-        analysis="Neural Link pending...", 
-        score=0.5
-    )
-    
     try:
+        # 1. Identify User Silo
+        current_username = request.profile.get('username')
+        user = db.query(User).filter(User.username == current_username).first()
+        
+        if not user:
+            return {"error": "User context lost. Please re-authenticate."}
+
+        # 2. Create Initial Task Entry
+        new_task = TaskEntry(
+            content=request.task,
+            user_id=user.id,
+            theater="Personal",
+            priority="Standard",
+            analysis="Neural Link pending...", 
+            score=0.5
+        )
         db.add(new_task)
         db.commit()
-        db.refresh(new_task) # This gets us the 'id' assigned by SQLite
+        db.refresh(new_task)
 
+        # 3. Build Neural Context (Legacy History)
         legacy = request.profile.get('legacyProfessions', [])
         legacy_str = ", ".join(legacy) if legacy else "none"
 
-        # 2. CALL THE AI
-        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = f"""
-        Analyze this task: "{request.task}" 
-        Primary Profession: {request.profile.get('profession')}
-        Legacy Experience: {legacy_str}
-
-        Assign one of these three 'Theaters':
-        1. 'Professional': Property management, tenants, or business.
-        2. 'Domestic': Household, chores, groceries, home maintenance.
-        3. 'Personal': Self-care, hobbies, fitness, social.
-
-        Return ONLY a JSON object: 
-        {{"theater": "Professional/Domestic/Personal", "priority": "High/Standard", "analysis": "max 15 words", "score": 0.5}}
+        User Profession: {user.profession}
+        Neural History (Previous Experience): {legacy_str}
+        
+        Task to Analyze: "{request.task}"
+        
+        Return a JSON object with:
+        - "theater": (Professional, Domestic, or Personal)
+        - "priority": (High, Medium, or Low)
+        - "analysis": (A 1-sentence neural assessment based on their profession)
+        - "score": (A float 0.0-1.0)
         """
 
-        response = model.generate_content(prompt)
-        
-        # 3. CLEAN & PARSE
-        cleaned_json = response.text.replace('```json', '').replace('```', '').strip()
-        data = json.loads(cleaned_json)
+        # 4. Execute AI Analysis (New SDK Syntax)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
 
-        # 4. UPDATE THE EXISTING RECORD
-        # Now we fill in the blanks with the AI's wisdom
+        # 5. Parse and Update
+        data = json.loads(response.text)
         new_task.theater = data.get("theater", "Personal")
-        new_task.priority = data.get("priority", "Standard")
-        new_task.analysis = data.get("analysis", "Analysis complete.")
+        new_task.priority = data.get("priority", "Medium")
+        new_task.analysis = data.get("analysis", "Neural analysis synchronized.")
         new_task.score = data.get("score", 0.5)
-        
+
         db.commit()
         db.refresh(new_task)
-        
-        return data
+        return new_task 
 
     except Exception as e:
-        print(f"Neural Error: {e}")
-        # If AI fails (like 429), we update the record to show the error
-        new_task.analysis = f"Neural Offline: {str(e)[:20]}..."
-        db.commit()
-        
-        # We still return a "safe" version to React so the UI doesn't crash
+        print(f"Neural Link Error: {e}")
+        # Return a graceful fallback if AI or DB fails
         return {
-            "theater": new_task.theater,
-            "priority": new_task.priority,
-            "analysis": new_task.analysis,
-            "score": new_task.score
+            "theater": "Personal", 
+            "priority": "Standard", 
+            "analysis": "Neural Link intermittent. Manual classification required.", 
+            "score": 0.5
         }
     finally:
         db.close()
 
-@app.get("/tasks")
-async def get_tasks():
+@app.get("/tasks/{username}")
+async def get_tasks(username: str):
     db = SessionLocal()
-    # Get the 50 most recent tasks
-    tasks = db.query(TaskEntry).order_by(TaskEntry.created_at.desc()).limit(50).all()
+    # 1. Find the user ID based on the username string
+    user = db.query(User).filter(User.username == username).first()
+    
+    if not user:
+        db.close()
+        return []
+
+    # 2. Filter tasks so User A never sees User B's data
+    tasks = db.query(TaskEntry).filter(TaskEntry.user_id == user.id).order_by(TaskEntry.created_at.desc()).limit(50).all()
     db.close()
     return tasks
 
@@ -150,7 +159,10 @@ async def move_task(request: MoveRequest):
 async def delete_task(task_id: int):
     db = SessionLocal()
     try:
-        task = db.query(TaskEntry).filter(TaskEntry.id == task_id).first()
+        task = db.query(TaskEntry).filter(
+        TaskEntry.id == task_id, 
+        TaskEntry.user_id == user.id
+    ).first()
         if task:
             db.delete(task)
             db.commit()
