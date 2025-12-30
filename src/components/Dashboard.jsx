@@ -43,9 +43,16 @@ export default function Dashboard({ user, profile }) {
   };
 
   // Filter history based on the active tab
-  const filteredHistory = tasks.filter(
-    (item) => item.theater === activeTheater
-  );
+  const filteredHistory = tasks
+    .filter((item) => item.theater === activeTheater)
+    .sort((a, b) => {
+      // 1. Primary Sort: Priority (High comes first)
+      if (a.priority === 'High' && b.priority !== 'High') return -1;
+      if (a.priority !== 'High' && b.priority === 'High') return 1;
+
+      // 2. Secondary Sort: Date (Newest first)
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
 
   // 1. Move fetchTasks outside of any other functions so it's "global" to the component
   const fetchTasks = async () => {

@@ -18,6 +18,16 @@ class TaskEntry(Base):
     score = Column(Float)              # 0.0 to 1.0 urgency
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    profession = Column(String)
+    # We can store legacy knowledge as a JSON string
+    legacy_knowledge = Column(String, default="[]") 
+    theme_preference = Column(String, default="system")
+
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
