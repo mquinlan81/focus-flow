@@ -8,9 +8,11 @@ const SettingsView = ({
   setSecurity,
   username,
   onExit,
+  onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState('profile');
   const [newLegacy, setNewLegacy] = useState('');
+  const [isConfirming, setIsConfirming] = useState(false);
 
   const addLegacy = () => {
     if (newLegacy.trim() && !profile.legacyProfessions.includes(newLegacy)) {
@@ -211,6 +213,38 @@ const SettingsView = ({
         </span>
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-ffblue/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
       </button>
+
+      <div className="pt-8 border-t border-ffwhite/10">
+        {!isConfirming ? (
+          <button
+            onClick={() => setIsConfirming(true)}
+            className="w-full py-4 border border-ffwhite/20 bg-ffwhite/5 text-ffwhite/60 font-inter font-black text-[10px] uppercase tracking-[0.3em] rounded-xl hover:border-ffred/50 hover:text-ffred transition-all duration-300"
+          >
+            Terminate Neural Link [Logout]
+          </button>
+        ) : (
+          <div className="flex gap-2 animate-in zoom-in-95 duration-200">
+            <button
+              onClick={onLogout}
+              className="flex-[2] py-4 bg-ffred text-ffblack font-inter font-black text-[10px] uppercase tracking-[0.3em] rounded-xl hover:brightness-110"
+            >
+              Confirm Termination
+            </button>
+            <button
+              onClick={() => setIsConfirming(false)}
+              className="flex-1 py-4 border border-ffwhite/20 text-ffwhite/40 font-inter font-black text-[10px] uppercase tracking-[0.3em] rounded-xl hover:bg-ffwhite/5"
+            >
+              Abort
+            </button>
+          </div>
+        )}
+
+        <p className="text-center text-[8px] font-mono text-ffwhite/20 mt-4 uppercase tracking-[0.2em]">
+          {isConfirming
+            ? 'CAUTION: Finalizing session wipe...'
+            : 'Neural Session: Active'}
+        </p>
+      </div>
     </div>
   );
 };

@@ -83,6 +83,26 @@ function App() {
     setStep(4); // Jump straight to the Matrix
   };
 
+  const handleLogout = () => {
+    // 1. Reset all user-specific state
+    setUsername('');
+    setProfile({
+      firstName: '',
+      lastName: '',
+      profession: '',
+      legacyProfessions: [],
+      work_address: '',
+      home_address: '',
+      primary_theater: 'Professional',
+      energy_peak: 'Morning',
+    });
+    setSecurity({ email: '', password: '' });
+
+    // 2. Return to the Identity scan (Step 1)
+    setStep(1);
+    setCurrentView('dashboard'); // Reset view so they don't start in settings next time
+  };
+
   return (
     <main
       className={`bg-ffblack min-h-screen flex justify-center p-4 ${
@@ -143,6 +163,7 @@ function App() {
                 setSecurity={setSecurity}
                 username={username}
                 onExit={() => setCurrentView('dashboard')}
+                onLogout={handleLogout}
               />
             )}
           </div>

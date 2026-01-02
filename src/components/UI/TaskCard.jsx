@@ -1,19 +1,46 @@
 import React, { useState } from 'react';
 
-const TaskCard = ({ item, onMove, onDelete, onComplete }) => {
-  // Local state to track if we are confirming a delete
+const TaskCard = ({
+  item,
+  onMove,
+  onDelete,
+  onComplete,
+  onMigrate,
+  onReactivate,
+}) => {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
+  // Logic to see if the task is in the future
+  const today = new Date().toISOString().split('T')[0];
+  const isFuture = item.scheduled_date > today;
+
   return (
-    <div className="group bg-ffblue/5 border border-ffblue/10 p-4 rounded-2xl hover:border-ffblue/30 transition-all animate-in slide-in-from-right duration-300">
-      {/* Top Bar: Timestamp and Priority */}
+    <div
+      className={`group ${
+        isFuture
+          ? 'bg-ffblack/60 border-ffwhite/10'
+          : 'bg-ffblue/5 border-ffblue/10'
+      } p-4 rounded-2xl hover:border-ffblue/30 transition-all animate-in slide-in-from-right duration-300`}
+    >
+      {/* Top Bar: Timestamp and Status */}
       <div className="flex justify-between items-start mb-2">
-        <span className="text-[8px] font-mono text-ffblue/60 uppercase">
-          {new Date(item.created_at).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className="text-[8px] font-mono text-ffblue/60 uppercase">
+            {new Date(item.created_at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+          {/* NEW: Date Badge */}
+          <span
+            className={`text-[9px] font-bold tracking-widest uppercase ${
+              isFuture ? 'text-ffyellow' : 'text-ffaqua'
+            }`}
+          >
+            {isFuture ? `📅 ${item.scheduled_date}` : '⚡ Today'}
+          </span>
+        </div>
+
         <div className="flex gap-2">
           <span
             className={`text-[8px] font-mono px-2 py-0.5 rounded ${
@@ -38,56 +65,88 @@ const TaskCard = ({ item, onMove, onDelete, onComplete }) => {
 
         {/* Action Row */}
         <div className="flex justify-between items-center mt-3 pt-2 border-t border-ffblue/5">
-          {/* Manual Move Controls */}
-          <div className="flex gap-1">
-            {['Professional', 'Domestic', 'Personal'].map(
-              (t) =>
-                t !== item.theater && (
+          {item.status === 'complete' ? (
+            /* --- COMPLETED STATE: Show only Restore and Delete --- */
+            <>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onReactivate(item.id)}
+                  className="text-[10px] uppercase tracking-widest bg-ffgreen/10 hover:bg-ffgreen/20 text-ffgreen px-4 py-1 rounded border border-ffgreen/30 transition-all font-bold"
+                >
+                  RE-LINK NEURAL FLOW
+                </button>
+              </div>
+
+              <div className="flex gap-4">
+                {/* We keep the Delete button here so they can still purge completed tasks */}
+                {isConfirmingDelete ? (
                   <button
-                    key={t}
-                    onClick={() => onMove(item.id, t)}
-                    className="text-xs uppercase tracking-tighter bg-ffblue/10 hover:bg-ffblue/30 text-ffblue px-2 py-1 rounded border border-ffblue/20 transition-colors"
+                    onClick={() => onDelete(item.id)}
+                    className="text-s bg-ffred/20 text-ffred px-2 py-0.5 rounded animate-pulse"
                   >
-                    To {t.slice(0, 3)}
+                    Confirm?
                   </button>
-                )
-            )}
-          </div>
+                ) : (
+                  <button
+                    onClick={() => setIsConfirmingDelete(true)}
+                    className="text-s text-ffred/50 hover:text-ffred transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            /* --- PENDING STATE: Your original logic --- */
+            <>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => onMigrate(item.id, 1)} // Ensure this is a number 1
+                  className="text-[10px] uppercase tracking-tighter bg-ffwhite/5 hover:bg-ffwhite/10 text-ffwhite/60 px-2 py-1 rounded border border-ffwhite/10 transition-colors"
+                  title="Migrate to Tomorrow"
+                >
+                  Migrate →
+                </button>
 
-          {/* Status Controls */}
-          <div className="flex gap-4">
-            <button
-              onClick={() => onComplete(item.id)}
-              className="text-s text-ffgreen/60 hover:text-ffgreen transition-colors"
-            >
-              ✓
-            </button>
+                {['Professional', 'Domestic', 'Personal'].map(
+                  (t) =>
+                    t !== item.theater && (
+                      <button
+                        key={t}
+                        onClick={() => onMove(item.id, t)}
+                        className="text-xs uppercase tracking-tighter bg-ffblue/10 hover:bg-ffblue/30 text-ffblue px-2 py-1 rounded border border-ffblue/20 transition-colors"
+                      >
+                        {t.slice(0, 3)}
+                      </button>
+                    )
+                )}
+              </div>
 
-            {isConfirmingDelete ? (
-              <button
-                onClick={() => onDelete(item.id)}
-                className="text-s bg-ffred/20 text-ffred px-2 py-0.5 rounded animate-pulse"
-              >
-                Confirm?
-              </button>
-            ) : (
-              <button
-                onClick={() => setIsConfirmingDelete(true)}
-                className="text-s text-ffred/50 hover:text-ffred transition-colors"
-              >
-                ✕
-              </button>
-            )}
-          </div>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => onComplete(item.id)}
+                  className="text-s text-ffgreen/60 hover:text-ffgreen transition-colors"
+                >
+                  ✓
+                </button>
 
-          {/* Reset confirmation if user leaves the card */}
-          {isConfirmingDelete && (
-            <button
-              onClick={() => setIsConfirmingDelete(false)}
-              className="text-s bg-white/10 text-ffwhite/30 px-2 py-0.5 rounded hover:text-ffwhite/50 transition-colors"
-            >
-              Cancel
-            </button>
+                {isConfirmingDelete ? (
+                  <button
+                    onClick={() => onDelete(item.id)}
+                    className="text-s bg-ffred/20 text-ffred px-2 py-0.5 rounded animate-pulse"
+                  >
+                    Confirm?
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsConfirmingDelete(true)}
+                    className="text-s text-ffred/50 hover:text-ffred transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>

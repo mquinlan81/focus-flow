@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Date
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import datetime
@@ -21,16 +21,17 @@ class User(Base):
 class TaskEntry(Base):
     __tablename__ = "tasks"
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    owner = relationship("User", back_populates="tasks")
     content = Column(String)
     theater = Column(String)
     priority = Column(String)
     analysis = Column(String)
     score = Column(Float)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    status = Column(String, default="pending") # pending, completed, migrated, dismissed
+    scheduled_date = Column(Date, default=datetime.date.today) # Defaults to today
     
-    # THE LINK:
-    user_id = Column(Integer, ForeignKey("users.id"))
-    owner = relationship("User", back_populates="tasks")
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

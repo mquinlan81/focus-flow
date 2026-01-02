@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import TaskCard from './UI/TaskCard';
+import NeuralToggle from './UI/NeuralToggle';
 
 export default function Dashboard({ user, profile }) {
   const inputRef = useRef(null);
@@ -7,6 +8,7 @@ export default function Dashboard({ user, profile }) {
   const [tasks, setTasks] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTheater, setActiveTheater] = useState('Professional');
+  const [viewMode, setViewMode] = useState('today'); // 'today' or 'future'
 
   // 1. Move fetchTasks outside of any other functions so it's "global" to the component
   const fetchTasks = useCallback(async () => {
@@ -33,19 +35,24 @@ export default function Dashboard({ user, profile }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          task: task,
-          profile: { ...profile, username: user },
+          task: task, // Matches backend
+          username: user, // FIX: Moved username to the top level
         }),
       });
 
+      // Check if the server actually succeeded
+      if (!response.ok) throw new Error('Network response was not ok');
+
       const data = await response.json();
 
+      // Reset local input and refresh the list
+      setTask('');
       await fetchTasks();
 
-      // UI SMARTS: Automatically switch to the tab where the AI put the task!
-      setActiveTheater(data.theater);
-
-      setTask('');
+      // If the AI categorized it into a different theater, switch to it!
+      if (data.theater) {
+        setActiveTheater(data.theater);
+      }
     } catch (error) {
       console.error('Neural Link Failure:', error);
     } finally {
@@ -53,17 +60,135 @@ export default function Dashboard({ user, profile }) {
     }
   };
 
-  // Filter history based on the active tab
-  const filteredHistory = tasks
-    .filter((item) => item.theater === activeTheater)
-    .sort((a, b) => {
-      // 1. Primary Sort: Priority (High comes first)
-      if (a.priority === 'High' && b.priority !== 'High') return -1;
-      if (a.priority !== 'High' && b.priority === 'High') return 1;
+  const handleMigrateTask = async (taskId, daysOut) => {
+    // 1. Force daysOut to be a number, default to 1 if it's missing/broken
+    const moveAmount = typeof daysOut === 'number' ? daysOut : 1;
 
-      // 2. Secondary Sort: Date (Newest first)
-      return new Date(b.created_at) - new Date(a.created_at);
-    });
+    try {
+      const targetDate = new Date();
+      // 2. Safer date math
+      targetDate.setDate(targetDate.getDate() + moveAmount);
+
+      // 3. Manual formatting to ensure it's a clean YYYY-MM-DD string
+      const yyyy = targetDate.getFullYear();
+      const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(targetDate.getDate()).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+
+      console.log(`MIGRATION LOG -- ID: ${taskId} | Target: ${dateStr}`);
+
+      const response = await fetch(
+        `http://localhost:8000/tasks/${taskId}/migrate`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduled_date: dateStr }),
+        }
+      );
+
+      if (response.ok) {
+        await fetchTasks();
+      } else {
+        console.error('Server rejected migration. Check Python logs.');
+      }
+    } catch (error) {
+      console.error('Migration failed:', error);
+    }
+  };
+
+  const handleReactivateTask = async (taskId) => {
+    try {
+      const response = await fetch(
+        `http://localhost:8000/tasks/${taskId}/reactivate`,
+        {
+          method: 'PATCH',
+        }
+      );
+
+      if (response.ok) {
+        await fetchTasks(); // Refresh the list
+      }
+    } catch (error) {
+      console.error('Reactivation failed:', error);
+    }
+  };
+
+  // Filter history based on the active tab
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const todayTasks = tasks.filter((t) => {
+    const cleanStatus = String(t.status || '')
+      .trim()
+      .toLowerCase();
+    const cleanDate = String(t.scheduled_date || '').split(' ')[0]; // Removes time if it exists
+    return cleanDate <= todayStr && cleanStatus === 'pending';
+  });
+
+  const futureTasks = tasks.filter((t) => {
+    const cleanStatus = String(t.status || '')
+      .trim()
+      .toLowerCase();
+    const cleanDate = String(t.scheduled_date || '').split(' ')[0];
+    return cleanDate > todayStr && cleanStatus === 'pending';
+  });
+
+  const completedTasks = tasks.filter((t) => {
+    const cleanStatus = String(t.status || '')
+      .trim()
+      .toLowerCase();
+    return cleanStatus === 'complete';
+  });
+
+  console.log('--- DEBUG RESULTS ---');
+  console.log('Today:', todayTasks.length);
+  console.log('Future:', futureTasks.length);
+  console.log('Completed:', completedTasks.length);
+
+  // 3. Select the box based on the current viewMode
+  // IMPORTANT: Ensure these match your useState('today') casing!
+  let currentBox = [];
+  if (viewMode === 'today') {
+    currentBox = todayTasks;
+  } else if (viewMode === 'future') {
+    currentBox = futureTasks;
+  } else if (viewMode === 'completed') {
+    currentBox = completedTasks;
+  }
+
+  // 4. Final filter for the Theater (Professional/Personal/etc) and sort by date
+  // 4. Final filter for the Theater - Forced lowercase comparison
+  const filteredHistory = currentBox
+    .filter((item) => {
+      const taskTheater = String(item.theater || '')
+        .trim()
+        .toLowerCase();
+      const currentActive = String(activeTheater || '')
+        .trim()
+        .toLowerCase();
+      return taskTheater === currentActive;
+    })
+    .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
+
+  // 5. Create the counts for your NeuralToggle
+  const timelineCounts = {
+    today: todayTasks.length,
+    future: futureTasks.length,
+    completed: completedTasks.length,
+  };
+
+  // const filteredHistory = tasks
+  //   .filter((item) => {
+  //     const isDateMatch =
+  //       viewMode === 'today'
+  //         ? item.scheduled_date <= todayStr
+  //         : item.scheduled_date > todayStr;
+  //     return (
+  //       item.theater === activeTheater &&
+  //       isDateMatch &&
+  //       item.status === 'pending'
+  //     );
+  //   })
+  //   .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date));
 
   // 2. Now handleMoveTask can "see" and call fetchTasks
   const handleMoveTask = async (taskId, targetTheater) => {
@@ -107,9 +232,6 @@ export default function Dashboard({ user, profile }) {
       {/* HEADER SECTION (Your Original Logic) */}
       <div className="flex justify-between items-end border-b border-ffblue/20 pb-4">
         <div>
-          {/* <h1 className="font-inter font-black text-2xl text-ffwhite tracking-tighter">
-            FOCUS<span className="text-ffblue">FLOW</span>
-          </h1> */}
           <p className="font-poppins text-[10px] text-ffblue uppercase tracking-[0.2em]">
             User: {user} // {profile.profession}
           </p>
@@ -141,21 +263,18 @@ export default function Dashboard({ user, profile }) {
       </div>
 
       {/* THEATER TABS (The New Logic) */}
-      <div className="flex bg-ffblack border border-ffblue/10 rounded-2xl p-1">
-        {['Professional', 'Domestic', 'Personal'].map((theater) => (
-          <button
-            key={theater}
-            onClick={() => setActiveTheater(theater)}
-            className={`flex-1 py-2 rounded-xl font-inter text-[9px] uppercase tracking-widest transition-all ${
-              activeTheater === theater
-                ? 'bg-ffblue/20 text-ffblue border border-ffblue/30'
-                : 'text-ffwhite/30 hover:text-ffwhite/60'
-            }`}
-          >
-            {theater}
-          </button>
-        ))}
-      </div>
+      <NeuralToggle
+        options={['professional', 'domestic', 'personal']}
+        active={activeTheater}
+        onChange={setActiveTheater}
+      />
+
+      <NeuralToggle
+        options={['today', 'future', 'completed']}
+        active={viewMode}
+        onChange={setViewMode}
+        counts={timelineCounts}
+      />
 
       {/* FILTERED FEED */}
       <div className="space-y-3">
@@ -174,8 +293,10 @@ export default function Dashboard({ user, profile }) {
               key={item.id}
               item={item}
               onMove={handleMoveTask}
-              onDelete={handleDeleteTask} // We'll define this next
-              onComplete={handleCompleteTask} // We'll define this next
+              onDelete={handleDeleteTask}
+              onComplete={handleCompleteTask}
+              onMigrate={handleMigrateTask}
+              onReactivate={handleReactivateTask}
             />
           ))}
         </div>

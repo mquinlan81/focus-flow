@@ -8,6 +8,8 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from database import SessionLocal, init_db, TaskEntry, User
+import datetime
+from datetime import date, timedelta
 
 # Initialize the database on startup
 init_db()
@@ -36,95 +38,90 @@ app.add_middleware(
 
 class TaskRequest(BaseModel):
     task: str
-    profile: dict
+    username: str
 
 @app.post("/analyze")
 async def analyze_task(request: TaskRequest):
     db = SessionLocal()
     try:
-        # 1. Identify User Silo
-        current_username = request.profile.get('username')
-        user = db.query(User).filter(User.username == current_username).first()
-        
-        if not user:
-            return {"error": "User context lost. Please re-authenticate."}
-
-        # 2. Create Initial Task Entry
-        new_task = TaskEntry(
-            content=request.task,
-            user_id=user.id,
-            theater="Personal",
-            priority="Standard",
-            analysis="Neural Link pending...", 
-            score=0.5
-        )
-        db.add(new_task)
-        db.commit()
-        db.refresh(new_task)
-
-        # 3. Build Neural Context (Legacy History)
-        legacy = request.profile.get('legacyProfessions', [])
-        legacy_str = ", ".join(legacy) if legacy else "none"
+        user = db.query(User).filter(User.username == request.username).first()
+        # Use the date class we imported earlier
+        today_date = date.today()
 
         prompt = f"""
+        Analyze this task: "{request.task}"
+        Current Date: {today_date}
         User Profession: {user.profession}
-        Neural History (Previous Experience): {legacy_str}
-        
-        Task to Analyze: "{request.task}"
-        
-        Return a JSON object with:
-        - "theater": (Professional, Domestic, or Personal)
-        - "priority": (High, Medium, or Low)
-        - "analysis": (A 1-sentence neural assessment based on their profession)
-        - "score": (A float 0.0-1.0)
+
+        Return ONLY a JSON object:
+        {{
+          "clean_task": "the task without time words",
+          "scheduled_date": "YYYY-MM-DD",
+          "theater": "professional/domestic/personal",
+          "priority": "high/medium/low",
+          "analysis": "short insight",
+          "score": 0.7
+        }}
         """
 
-        # 4. Execute AI Analysis (New SDK Syntax)
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.0-flash", 
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json"
             )
         )
+        
+        # 1. Clean the response text (sometimes AI adds ```json)
+        raw_text = response.text.strip().replace('```json', '').replace('```', '')
+        data = json.loads(raw_text)
 
-        # 5. Parse and Update
-        data = json.loads(response.text)
-        new_task.theater = data.get("theater", "Personal")
-        new_task.priority = data.get("priority", "Medium")
-        new_task.analysis = data.get("analysis", "Neural analysis synchronized.")
-        new_task.score = data.get("score", 0.5)
+        # 2. FIX: If data is a list, take the first item
+        if isinstance(data, list):
+            data = data[0]
 
+        # 3. Parse the date safely
+        task_date_str = data.get("scheduled_date")
+        try:
+            # If AI fails, use today
+            final_date = date.fromisoformat(task_date_str) if task_date_str else today_date
+        except:
+            final_date = today_date
+
+        new_task = TaskEntry(
+            user_id=user.id,
+            content=data.get("clean_task", request.task),
+            theater=data.get("theater", "personal"),
+            priority=data.get("priority", "medium"),
+            analysis=data.get("analysis", "No analysis available"),
+            score=data.get("score", 0.5),
+            scheduled_date=final_date, # This is the "Secure" date
+            status="pending"
+        )
+
+        db.add(new_task)
         db.commit()
-        db.refresh(new_task)
-        return new_task 
+        return {"status": "success"}
 
     except Exception as e:
         print(f"Neural Link Error: {e}")
-        # Return a graceful fallback if AI or DB fails
-        return {
-            "theater": "Personal", 
-            "priority": "Standard", 
-            "analysis": "Neural Link intermittent. Manual classification required.", 
-            "score": 0.5
-        }
+        return {"status": "error", "message": str(e)}
     finally:
         db.close()
 
 @app.get("/tasks/{username}")
 async def get_tasks(username: str):
     db = SessionLocal()
-    # 1. Find the user ID based on the username string
-    user = db.query(User).filter(User.username == username).first()
-    
-    if not user:
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            return []
+        
+        # Get ALL tasks for this user so React can sort them into boxes
+        tasks = db.query(TaskEntry).filter(TaskEntry.user_id == user.id).all()
+        return tasks
+    finally:
         db.close()
-        return []
-
-    # 2. Filter tasks so User A never sees User B's data
-    tasks = db.query(TaskEntry).filter(TaskEntry.user_id == user.id).order_by(TaskEntry.created_at.desc()).limit(50).all()
-    db.close()
-    return tasks
 
 # 1. Define the data shape for the move request
 class MoveRequest(BaseModel):
@@ -159,10 +156,7 @@ async def move_task(request: MoveRequest):
 async def delete_task(task_id: int):
     db = SessionLocal()
     try:
-        task = db.query(TaskEntry).filter(
-        TaskEntry.id == task_id, 
-        TaskEntry.user_id == user.id
-    ).first()
+        task = db.query(TaskEntry).filter(TaskEntry.id == task_id).first()
         if task:
             db.delete(task)
             db.commit()
@@ -178,6 +172,7 @@ async def complete_task(task_id: int):
     try:
         task = db.query(TaskEntry).filter(TaskEntry.id == task_id).first()
         if task:
+            task.status = "complete"  # <--- MAKE SURE THIS LINE EXISTS
             task.analysis = "✓ Objective Secured"
             db.commit()
             return {"status": "success"}
@@ -185,6 +180,38 @@ async def complete_task(task_id: int):
         db.close()
 
 import json
+
+@app.patch("/tasks/{task_id}/migrate")
+async def migrate_task(task_id: int, request: dict):
+    db = SessionLocal()
+    try:
+        task = db.query(TaskEntry).filter(TaskEntry.id == task_id).first()
+        if task:
+            task.scheduled_date = date.fromisoformat(request.get("scheduled_date"))
+            task.status = "pending" # Ensure it stays active
+            db.commit()
+            return {"status": "success"}
+    finally:
+        db.close()
+
+@app.patch("/tasks/{task_id}/reactivate")
+async def reactivate_task(task_id: int):
+    db = SessionLocal()
+    try:
+        task = db.query(TaskEntry).filter(TaskEntry.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        task.status = "pending"
+        task.analysis = "Neural Link Restored: Objective back in active feed."
+        
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        print(f"Reactivate Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 @app.post("/register")
 async def register_user(request: dict):
